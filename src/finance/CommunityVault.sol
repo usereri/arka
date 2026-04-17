@@ -11,8 +11,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev Community can request funds and vote on allocations
  */
 contract CommunityVault is Ownable, ReentrancyGuard {
-    uint256 public constant QUORUM_PERCENTAGE = 51; // 51% of NFT holders must vote
-    uint256 public constant SUPPORT_THRESHOLD = 60; // 60% support required
+    uint256 public constant QUORUM_PERCENTAGE = 51;
+    uint256 public constant SUPPORT_THRESHOLD = 60;
 
     struct Request {
         address payable to;
@@ -24,20 +24,25 @@ contract CommunityVault is Ownable, ReentrancyGuard {
         uint256 createdAt;
     }
 
-    // Track all fund requests
     Request[] public requests;
-    // Track if a wallet has voted on a request
     mapping(uint256 => mapping(address => bool)) public hasVoted;
-    // Track total votes cast (for quorum calculation)
     mapping(uint256 => uint256) public totalVotesCast;
 
-    // Contract registry for accessing UserProfileNFT
     address public registry;
 
     event FundsReceived(address indexed from, uint256 amount);
-    event FundsRequested(uint256 indexed requestId, address indexed to, uint256 amount, string reason);
+    event FundsRequested(
+        uint256 indexed requestId,
+        address indexed to,
+        uint256 amount,
+        string reason
+    );
     event Voted(uint256 indexed requestId, address indexed voter, bool support);
-    event RequestExecuted(uint256 indexed requestId, address indexed to, uint256 amount);
+    event RequestExecuted(
+        uint256 indexed requestId,
+        address indexed to,
+        uint256 amount
+    );
 
     constructor(address _registry) Ownable(msg.sender) {
         registry = _registry;
@@ -82,15 +87,17 @@ contract CommunityVault is Ownable, ReentrancyGuard {
         require(amount <= address(this).balance, "Insufficient vault balance");
 
         requestId = requests.length;
-        requests.push(Request({
-            to: to,
-            amount: amount,
-            reason: reason,
-            votesFor: 0,
-            votesAgainst: 0,
-            executed: false,
-            createdAt: block.timestamp
-        }));
+        requests.push(
+            Request({
+                to: to,
+                amount: amount,
+                reason: reason,
+                votesFor: 0,
+                votesAgainst: 0,
+                executed: false,
+                createdAt: block.timestamp
+            })
+        );
 
         emit FundsRequested(requestId, to, amount, reason);
     }
@@ -104,10 +111,14 @@ contract CommunityVault is Ownable, ReentrancyGuard {
         require(requestId < requests.length, "Request does not exist");
         Request storage request = requests[requestId];
         require(!request.executed, "Request already executed");
-        require(!hasVoted[requestId][msg.sender], "Already voted on this request");
+        require(
+            !hasVoted[requestId][msg.sender],
+            "Already voted on this request"
+        );
 
-        // Verify voter has a ProfileNFT
-        uint256 voterTokenId = IVaultProfileNFT(IVaultRegistry(registry).userProfileNFT()).getTokenIdByWallet(msg.sender);
+        uint256 voterTokenId = IVaultProfileNFT(
+            IVaultRegistry(registry).userProfileNFT()
+        ).getTokenIdByWallet(msg.sender);
         require(voterTokenId != 0, "Must have a ProfileNFT to vote");
 
         hasVoted[requestId][msg.sender] = true;
@@ -131,14 +142,15 @@ contract CommunityVault is Ownable, ReentrancyGuard {
         Request storage request = requests[requestId];
         require(!request.executed, "Request already executed");
 
-        uint256 totalSupply = IVaultProfileNFT(IVaultRegistry(registry).userProfileNFT()).totalSupply();
+        uint256 totalSupply = IVaultProfileNFT(
+            IVaultRegistry(registry).userProfileNFT()
+        ).totalSupply();
         require(totalSupply > 0, "No profile NFTs exist");
 
-        // Calculate quorum percentage
-        uint256 quorumPercentage = (totalVotesCast[requestId] * 100) / totalSupply;
+        uint256 quorumPercentage = (totalVotesCast[requestId] * 100) /
+            totalSupply;
         require(quorumPercentage >= QUORUM_PERCENTAGE, "Quorum not reached");
 
-        // Calculate support percentage
         uint256 totalCast = request.votesFor + request.votesAgainst;
         require(totalCast > 0, "No votes cast");
         uint256 supportPercentage = (request.votesFor * 100) / totalCast;
@@ -155,18 +167,20 @@ contract CommunityVault is Ownable, ReentrancyGuard {
      * @param requestId The request ID
      * @return Full Request struct
      */
-    function getRequest(uint256 requestId) external view returns (Request memory) {
+    function getRequest(
+        uint256 requestId
+    ) external view returns (Request memory) {
         require(requestId < requests.length, "Request does not exist");
         return requests[requestId];
     }
 }
 
-// Minimal interfaces
 interface IVaultRegistry {
     function userProfileNFT() external view returns (address);
 }
 
 interface IVaultProfileNFT {
     function totalSupply() external view returns (uint256);
+
     function getTokenIdByWallet(address wallet) external view returns (uint256);
 }

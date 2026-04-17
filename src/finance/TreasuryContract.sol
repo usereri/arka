@@ -10,10 +10,10 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev AI proposes member of month → community votes → 70% to winner, 30% to vault
  */
 contract TreasuryContract is Ownable, ReentrancyGuard {
-    uint256 public constant WINNER_PERCENTAGE = 70;  // 70% to monthly winner
-    uint256 public constant VAULT_PERCENTAGE = 30;    // 30% to CommunityVault
-    uint256 public constant PASS_THRESHOLD = 51;      // 51% support to pass
-    uint256 public constant MAX_ROUNDS = 3;           // Max voting rounds before AI auto-executes
+    uint256 public constant WINNER_PERCENTAGE = 70;
+    uint256 public constant VAULT_PERCENTAGE = 30;
+    uint256 public constant PASS_THRESHOLD = 51;
+    uint256 public constant MAX_ROUNDS = 3;
 
     struct Proposal {
         address payable nominee;
@@ -26,16 +26,12 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
         uint256 createdAt;
     }
 
-    // Contract registry
     address public immutable registry;
 
-    // Proposals
     Proposal[] public proposals;
 
-    // Voting tracking
     mapping(uint256 => mapping(address => bool)) public hasVoted;
 
-    // Emergency requests
     struct EmergencyRequest {
         address payable to;
         uint256 amount;
@@ -48,16 +44,36 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
     EmergencyRequest[] public emergencyRequests;
     mapping(uint256 => mapping(address => bool)) public hasVotedOnEmergency;
 
-    event ProposalCreated(uint256 indexed proposalId, address indexed nominee, uint256 amount);
-    event Voted(uint256 indexed proposalId, address indexed voter, bool support);
-    event ProposalExecuted(uint256 indexed proposalId, uint256 amountToWinner, uint256 amountToVault);
+    event ProposalCreated(
+        uint256 indexed proposalId,
+        address indexed nominee,
+        uint256 amount
+    );
+    event Voted(
+        uint256 indexed proposalId,
+        address indexed voter,
+        bool support
+    );
+    event ProposalExecuted(
+        uint256 indexed proposalId,
+        uint256 amountToWinner,
+        uint256 amountToVault
+    );
     event ProposalFailed(uint256 indexed proposalId, uint8 round);
     event AIAutoExecuted(uint256 indexed proposalId, uint256 amount);
-    event EmergencyRequested(uint256 indexed requestId, address indexed to, uint256 amount, string reason);
-    event EmergencyVoted(uint256 indexed requestId, address indexed voter, bool support);
+    event EmergencyRequested(
+        uint256 indexed requestId,
+        address indexed to,
+        uint256 amount,
+        string reason
+    );
+    event EmergencyVoted(
+        uint256 indexed requestId,
+        address indexed voter,
+        bool support
+    );
     event EmergencyExecuted(uint256 indexed requestId);
 
-    // Events for AI suggestion
     event SuggestionCreated(uint256 indexed proposalId, string reasoning);
 
     constructor(address _registry) Ownable(msg.sender) {
@@ -85,21 +101,29 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
      * @param nominee Address to receive the payout
      * @param amount Amount of ETH to distribute
      */
-    function proposePayout(address payable nominee, uint256 amount) public returns (uint256 proposalId) {
+    function proposePayout(
+        address payable nominee,
+        uint256 amount
+    ) public returns (uint256 proposalId) {
         require(amount > 0, "Amount must be positive");
-        require(amount <= address(this).balance, "Insufficient treasury balance");
+        require(
+            amount <= address(this).balance,
+            "Insufficient treasury balance"
+        );
 
         proposalId = proposals.length;
-        proposals.push(Proposal({
-            nominee: nominee,
-            amount: amount,
-            votesFor: 0,
-            votesAgainst: 0,
-            round: 1,
-            executed: false,
-            aiAutoExecute: false,
-            createdAt: block.timestamp
-        }));
+        proposals.push(
+            Proposal({
+                nominee: nominee,
+                amount: amount,
+                votesFor: 0,
+                votesAgainst: 0,
+                round: 1,
+                executed: false,
+                aiAutoExecute: false,
+                createdAt: block.timestamp
+            })
+        );
 
         emit ProposalCreated(proposalId, nominee, amount);
     }
@@ -128,11 +152,15 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
         require(proposalId < proposals.length, "Proposal does not exist");
         Proposal storage proposal = proposals[proposalId];
         require(!proposal.executed, "Proposal already executed");
-        require(!hasVoted[proposalId][msg.sender], "Already voted on this proposal");
+        require(
+            !hasVoted[proposalId][msg.sender],
+            "Already voted on this proposal"
+        );
 
-        // Verify voter has a ProfileNFT
-        address profileNFT = ITreasuryContractRegistry(registry).userProfileNFT();
-        uint256 voterTokenId = ITreasuryProfileNFT(profileNFT).getTokenIdByWallet(msg.sender);
+        address profileNFT = ITreasuryContractRegistry(registry)
+            .userProfileNFT();
+        uint256 voterTokenId = ITreasuryProfileNFT(profileNFT)
+            .getTokenIdByWallet(msg.sender);
         require(voterTokenId != 0, "Must have a ProfileNFT to vote");
 
         hasVoted[proposalId][msg.sender] = true;
@@ -163,15 +191,13 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
 
         proposal.executed = true;
 
-        // Calculate amounts
         uint256 amountToWinner = (proposal.amount * WINNER_PERCENTAGE) / 100;
         uint256 amountToVault = (proposal.amount * VAULT_PERCENTAGE) / 100;
 
-        // Send to winner
         proposal.nominee.transfer(amountToWinner);
 
-        // Send 30% to CommunityVault
-        address vaultAddress = ITreasuryContractRegistry(registry).communityVault();
+        address vaultAddress = ITreasuryContractRegistry(registry)
+            .communityVault();
         (bool success, ) = vaultAddress.call{value: amountToVault}("");
         require(success, "Transfer to vault failed");
 
@@ -183,7 +209,9 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
      * @param proposalId The proposal that failed
      * @return shouldAutoExecute True if AI auto-execute should happen
      */
-    function recordFailedVote(uint256 proposalId) external returns (bool shouldAutoExecute) {
+    function recordFailedVote(
+        uint256 proposalId
+    ) external returns (bool shouldAutoExecute) {
         require(proposalId < proposals.length, "Proposal does not exist");
         Proposal storage proposal = proposals[proposalId];
 
@@ -210,7 +238,6 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
 
         proposal.executed = true;
 
-        // Full amount goes to winner (AI suggestion auto-passes after 3 fails)
         proposal.nominee.transfer(proposal.amount);
 
         emit AIAutoExecuted(proposalId, proposal.amount);
@@ -228,18 +255,23 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
         string calldata reason
     ) external returns (uint256 requestId) {
         require(amount > 0, "Amount must be positive");
-        require(amount <= address(this).balance, "Insufficient treasury balance");
+        require(
+            amount <= address(this).balance,
+            "Insufficient treasury balance"
+        );
 
         requestId = emergencyRequests.length;
-        emergencyRequests.push(EmergencyRequest({
-            to: to,
-            amount: amount,
-            reason: reason,
-            votesFor: 0,
-            votesAgainst: 0,
-            executed: false,
-            createdAt: block.timestamp
-        }));
+        emergencyRequests.push(
+            EmergencyRequest({
+                to: to,
+                amount: amount,
+                reason: reason,
+                votesFor: 0,
+                votesAgainst: 0,
+                executed: false,
+                createdAt: block.timestamp
+            })
+        );
 
         emit EmergencyRequested(requestId, to, amount, reason);
     }
@@ -255,9 +287,10 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
         require(!request.executed, "Request already executed");
         require(!hasVotedOnEmergency[requestId][msg.sender], "Already voted");
 
-        // Verify voter has a ProfileNFT
-        address profileNFT = ITreasuryContractRegistry(registry).userProfileNFT();
-        uint256 voterTokenId = ITreasuryProfileNFT(profileNFT).getTokenIdByWallet(msg.sender);
+        address profileNFT = ITreasuryContractRegistry(registry)
+            .userProfileNFT();
+        uint256 voterTokenId = ITreasuryProfileNFT(profileNFT)
+            .getTokenIdByWallet(msg.sender);
         require(voterTokenId != 0, "Must have a ProfileNFT to vote");
 
         hasVotedOnEmergency[requestId][msg.sender] = true;
@@ -305,7 +338,9 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
      * @param proposalId The proposal ID
      * @return Full Proposal struct
      */
-    function getProposal(uint256 proposalId) external view returns (Proposal memory) {
+    function getProposal(
+        uint256 proposalId
+    ) external view returns (Proposal memory) {
         require(proposalId < proposals.length, "Proposal does not exist");
         return proposals[proposalId];
     }
@@ -315,15 +350,17 @@ contract TreasuryContract is Ownable, ReentrancyGuard {
      * @param requestId The request ID
      * @return Full EmergencyRequest struct
      */
-    function getEmergencyRequest(uint256 requestId) external view returns (EmergencyRequest memory) {
+    function getEmergencyRequest(
+        uint256 requestId
+    ) external view returns (EmergencyRequest memory) {
         require(requestId < emergencyRequests.length, "Request does not exist");
         return emergencyRequests[requestId];
     }
 }
 
-// Minimal interfaces
 interface ITreasuryContractRegistry {
     function userProfileNFT() external view returns (address);
+
     function communityVault() external view returns (address);
 }
 
