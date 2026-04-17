@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
+import "./HelperConfig.s.sol";
 import "../src/identity/UserProfileNFT.sol";
 import "../src/meetings/MeetingAttendanceNFT.sol";
 import "../src/meetings/MeetingContract.sol";
@@ -22,11 +23,15 @@ import "../src/registry/ContractRegistry.sol";
  */
 contract Deploy is Script {
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("ANVIL_PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
+        HelperConfig helperConfig = new HelperConfig();
+        HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
+
+        uint256 deployerPrivateKey = config.deployerPrivateKey;
+        address deployer = config.deployer;
 
         console.log("Deploying contracts with account:", deployer);
         console.log("Balance:", deployer.balance);
+        console.log("Chain ID:", block.chainid);
 
         vm.startBroadcast(deployerPrivateKey);
         UserProfileNFT userProfileNFT = new UserProfileNFT();
