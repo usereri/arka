@@ -5,107 +5,111 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-/**
- * @title UserProfileNFT
- * @notice ERC721 for on-chain user identity with trust scores and respect points
- */
 contract UserProfileNFT is ERC721URIStorage, Ownable {
-    uint256 private _tokenIdCounter;
+    // Start at 1 so walletToTokenId[x] == 0 reliably means "no profile"
+    uint256 private _tokenIdCounter = 1;
 
     struct Profile {
-        uint256 trustScore;
-        uint256 totalRespect;
-        uint256 memberSince;
         string username;
+        uint256 memberSince;
     }
 
-    mapping(uint256 => Profile) public profiles;
-    mapping(address => uint256) public walletToTokenId;
+    struct Badge {
+        uint256 communityId;
+        uint256 awardedAt;
+        string reason;
+    }
 
-    event ProfileMinted(address indexed to, uint256 tokenId, string username);
-    event TrustScoreUpdated(uint256 indexed tokenId, uint256 newScore);
-    event RespectAdded(uint256 indexed tokenId, uint256 respect, uint256 newTotal);
+    mapping(uint256 tokenId => Profile) public profiles;
+    mapping(address wallet => uint256 tokenId) public walletToTokenId;
 
-    constructor() ERC721("ProofFund Profile", "PFP") Ownable(msg.sender) {}
+    // Per-community reputation: wallet => communityId => score
+    mapping(address wallet => mapping(uint256 communityId => uint256)) public communityReputation;
 
-    /**
-     * @notice Mint a new profile NFT for a user
-     * @param to The address receiving the NFT
-     * @param username The username for this profile
-     * @return tokenId The ID of the newly minted token
-     */
-    function mintProfile(address to, string memory username) external onlyOwner returns (uint256 tokenId) {
-        require(walletToTokenId[to] == 0, "Profile already exists for this wallet");
+    // Badges per wallet (append-only; frontend filters by communityId)
+    mapping(address wallet => Badge[]) private _badges;
+
+    // Authorized writers (CommunityRegistry) can update reputation and award badges
+    mapping(address => bool) public authorizedWriters;
+
+    event ProfileMinted(address indexed wallet, uint256 indexed tokenId, string username);
+    event ReputationAdded(address indexed wallet, uint256 indexed communityId, uint256 amount, uint256 newTotal);
+    event BadgeAwarded(address indexed wallet, uint256 indexed communityId, string reason);
+    event WriterAuthorized(address indexed writer);
+    event WriterRevoked(address indexed writer);
+
+    modifier onlyAuthorizedWriter() {
+        require(authorizedWriters[msg.sender] || msg.sender == owner(), "Not authorized writer");
+        _;
+    }
+
+    constructor() ERC721("CoworkID", "CWID") Ownable(msg.sender) {}
+
+    // --- Authorization ---
+
+    function authorizeWriter(address writer) external onlyOwner {
+        authorizedWriters[writer] = true;
+        emit WriterAuthorized(writer);
+    }
+
+    function revokeWriter(address writer) external onlyOwner {
+        authorizedWriters[writer] = false;
+        emit WriterRevoked(writer);
+    }
+
+    // --- Identity ---
+
+    function mintProfile(address to, string calldata username) external onlyOwner returns (uint256 tokenId) {
+        require(!hasProfile(to), "Profile already exists");
 
         tokenId = _tokenIdCounter++;
         _safeMint(to, tokenId);
         walletToTokenId[to] = tokenId;
 
-        profiles[tokenId] = Profile({
-            trustScore: 0,
-            totalRespect: 0,
-            memberSince: block.timestamp,
-            username: username
-        });
+        profiles[tokenId] = Profile({username: username, memberSince: block.timestamp});
 
         emit ProfileMinted(to, tokenId, username);
     }
 
-    /**
-     * @notice Update the trust score of a profile
-     * @param tokenId The token ID of the profile
-     * @param newScore The new trust score value
-     */
-    function updateTrustScore(uint256 tokenId, uint256 newScore) external onlyOwner {
-        require(ownerOf(tokenId) != address(0), "Profile does not exist");
-        profiles[tokenId].trustScore = newScore;
-        emit TrustScoreUpdated(tokenId, newScore);
+    function hasProfile(address wallet) public view returns (bool) {
+        return walletToTokenId[wallet] != 0;
     }
 
-    /**
-     * @notice Add respect points to a profile
-     * @param tokenId The token ID of the profile
-     * @param respect The amount of respect to add
-     */
-    function addRespect(uint256 tokenId, uint256 respect) external onlyOwner {
-        require(ownerOf(tokenId) != address(0), "Profile does not exist");
-        profiles[tokenId].totalRespect += respect;
-        emit RespectAdded(tokenId, respect, profiles[tokenId].totalRespect);
-    }
-
-    /**
-     * @notice Get the full profile data for a token
-     * @param tokenId The token ID
-     * @return Profile struct with all data
-     */
     function getProfile(uint256 tokenId) external view returns (Profile memory) {
-        require(ownerOf(tokenId) != address(0), "Profile does not exist");
         return profiles[tokenId];
     }
 
-    /**
-     * @notice Get the token ID associated with a wallet address
-     * @param wallet The wallet address
-     * @return tokenId or 0 if no profile exists
-     */
     function getTokenIdByWallet(address wallet) external view returns (uint256) {
         return walletToTokenId[wallet];
     }
 
-    /**
-     * @notice Get total supply of profile NFTs
-     * @return The total number of minted profiles
-     */
     function totalSupply() external view returns (uint256) {
-        return _tokenIdCounter;
+        return _tokenIdCounter - 1;
     }
 
-    /**
-     * @notice Check if a wallet has a profile
-     * @param wallet The wallet address to check
-     * @return True if profile exists
-     */
-    function hasProfile(address wallet) external view returns (bool) {
-        return walletToTokenId[wallet] != 0;
+    // --- Reputation (written by CommunityRegistry only) ---
+
+    function addReputation(address wallet, uint256 communityId, uint256 amount) external onlyAuthorizedWriter {
+        communityReputation[wallet][communityId] += amount;
+        emit ReputationAdded(wallet, communityId, amount, communityReputation[wallet][communityId]);
+    }
+
+    function getReputation(address wallet, uint256 communityId) external view returns (uint256) {
+        return communityReputation[wallet][communityId];
+    }
+
+    // --- Badges (written by CommunityRegistry only) ---
+
+    function awardBadge(address wallet, uint256 communityId, string calldata reason) external onlyAuthorizedWriter {
+        _badges[wallet].push(Badge({communityId: communityId, awardedAt: block.timestamp, reason: reason}));
+        emit BadgeAwarded(wallet, communityId, reason);
+    }
+
+    function getBadges(address wallet) external view returns (Badge[] memory) {
+        return _badges[wallet];
+    }
+
+    function getBadgeCount(address wallet) external view returns (uint256) {
+        return _badges[wallet].length;
     }
 }
